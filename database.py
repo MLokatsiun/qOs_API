@@ -1,7 +1,8 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-
-URL_DATABASE_AS = 'postgresql+asyncpg://postgres:1234@localhost:5432/qOs'
+from decouple import config
+URL_DATABASE_AS = config(
+    "URL_DATABASE_AS")
 
 engine = create_async_engine(URL_DATABASE_AS, echo=True)
 

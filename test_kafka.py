@@ -45,7 +45,7 @@ def consume_requests():
         while True:
             msg = consumer.poll(timeout=60)
             if msg is None:
-                print("Waiting for messages...")
+                print("Waiting for messages")
                 time.sleep(1)
                 continue
             if msg.error():
@@ -63,9 +63,9 @@ def consume_requests():
     except KeyboardInterrupt:
         print("Service stopped.")
     finally:
-        print("Closing Kafka Consumer...")
+        print("Closing Consumer...")
         consumer.close()
-        print("Kafka Consumer closed.")
+        print("Consumer closed.")
 
 if __name__ == "__main__":
     consume_requests()
