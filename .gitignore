@@ -1,0 +1,15 @@
+        .env
+        .idea/.gitignore
+        .idea/inspectionProfiles/
+        .idea/misc.xml
+        .idea/modules.xml
+        .idea/pythonProject.iml
+        alembic.ini
+        alembic/README
+        alembic/env.py
+        alembic/script.py.mako
+        alembic/versions/2439235c88fa_initial_migration.py
+        create_tables.py
+        qOs.zip
+        qos_api/
+git remote -v
