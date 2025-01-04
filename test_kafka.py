@@ -43,10 +43,10 @@ def send_pdf_response(request_id, tg_id, pdf_base64):
 def consume_requests():
     try:
         while True:
-            msg = consumer.poll(timeout=60)  # Збільшено час на 60 секунд
+            msg = consumer.poll(timeout=60)
             if msg is None:
                 print("Waiting for messages...")
-                time.sleep(1)  # Чекаємо 1 секунду перед новим запитом
+                time.sleep(1)
                 continue
             if msg.error():
                 print(f"Kafka error: {msg.error()}")
@@ -64,7 +64,7 @@ def consume_requests():
         print("Service stopped.")
     finally:
         print("Closing Kafka Consumer...")
-        consumer.close()  # Закриваємо Consumer після завершення обробки всіх запитів
+        consumer.close()
         print("Kafka Consumer closed.")
 
 if __name__ == "__main__":
