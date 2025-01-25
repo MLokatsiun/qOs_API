@@ -48,7 +48,6 @@ def generate_pdf(request_id, response_param, command, indicator):
                 y_position -= 20
                 continue
 
-            # Вивести заголовок (джерело або індекс)
             source = item.get("Источник", f"Item {idx}")
             c.setFont("Helvetica-Bold", 12)
             c.drawString(50, y_position, f"{idx}. Source: {source}")
@@ -56,21 +55,17 @@ def generate_pdf(request_id, response_param, command, indicator):
 
             c.setFont("Helvetica", 11)
             for key, value in item.items():
-                # Перевірка, чи значення є складним об'єктом
                 if isinstance(value, (dict, list)):
                     value = json.dumps(value, ensure_ascii=False, indent=2)
                 c.drawString(70, y_position, f"{key}: {value}")
                 y_position -= 15
 
-                # Якщо доходимо до кінця сторінки — створюємо нову
                 if y_position < 50:
                     c.showPage()
                     y_position = 750
 
-            # Додати відступ між елементами
             y_position -= 10
 
-    # Завершення PDF
     c.save()
     buffer.seek(0)
     return buffer.read()
@@ -132,11 +127,9 @@ def consume_responses():
                     logger.error(f"Kafka error: {msg.error()}")
                     raise KafkaException(msg.error())
             else:
-                # Логуємо сирі дані, отримані з Kafka
                 logger.info(f"Received raw message from Kafka: {msg.value()}")
 
                 try:
-                    # Декодуємо та перетворюємо повідомлення в JSON
                     message_data = json.loads(msg.value().decode('utf-8'))
                     logger.info(f"Decoded Kafka message: {message_data}")
 
@@ -145,21 +138,17 @@ def consume_responses():
                     command = message_data.get("command")
                     indicator = message_data.get("indicator")
 
-                    # Логуємо кожне поле повідомлення
                     logger.info(f"Extracted fields - request_id: {request_id}, response_param: {response_param}, "
                                 f"command: {command}, indicator: {indicator}")
 
-                    # Перевірка на валідність UUID
                     if not is_valid_uuid(request_id):
                         logger.warning(f"Invalid UUID format for request_id: {request_id}. Ignoring the message.")
                         continue
 
-                    # Перевірка на наявність обов'язкових полів
                     if not request_id or not response_param or not command or not indicator:
                         logger.warning(f"Invalid message format or missing required fields. Ignoring the message: {message_data}")
                         continue
 
-                    # Перевірка та конвертація `indicator` в `chat_id`
                     try:
                         chat_id = int(indicator)
                     except ValueError:
@@ -167,7 +156,7 @@ def consume_responses():
                         continue
 
                     with SyncSessionLocal() as session:
-                        # Перевіряємо, чи є запис у базі даних
+
                         result = session.execute(select(Request).where(Request.request_id == request_id))
                         request_record = result.scalars().first()
 
@@ -175,13 +164,12 @@ def consume_responses():
                             logger.warning(f"Request with id {request_id} not found in the database. Ignoring the message.")
                             continue
 
-                        # Оновлюємо запис у базі даних
                         request_record.response_param = response_param
                         request_record.status = "completed"
                         session.commit()
                         logger.info(f"Request {request_id} updated in the database: response_param set and status changed to 'COMPLETE'")
 
-                        # Генерація та відправка PDF або обробка пакетних запитів
+
                         if request_record.batch_key is None:
                             pdf_content = generate_pdf(request_id, response_param, command, indicator)
                             send_pdf_to_user(chat_id, pdf_content, f"response_{request_id}.pdf")

@@ -2,7 +2,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from decouple import config
-from contextlib import asynccontextmanager
 
 URL_DATABASE_AS = config(
     "URL_DATABASE_AS")
