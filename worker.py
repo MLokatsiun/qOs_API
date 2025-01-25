@@ -29,15 +29,28 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+import io
+import json
+
+try:
+    pdfmetrics.registerFont(TTFont("DejaVuSans", "DejaVuSans.ttf"))
+    pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", "DejaVuSans-Bold.ttf"))
+    print("Fonts registered successfully!")
+except Exception as e:
+    print(f"Error registering fonts: {e}")
+
 def generate_pdf(request_id, response_param, command, indicator):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
 
-    c.setFont("Helvetica-Bold", 14)
+    c.setFont("DejaVuSans-Bold", 14)
 
-    y_position = 720
-    c.setFont("Helvetica", 12)
+    y_position = 680
+    c.setFont("DejaVuSans", 12)
 
     if not response_param or not isinstance(response_param, list):
         c.drawString(50, y_position, "No valid data available in response_param.")
@@ -49,11 +62,11 @@ def generate_pdf(request_id, response_param, command, indicator):
                 continue
 
             source = item.get("Источник", f"Item {idx}")
-            c.setFont("Helvetica-Bold", 12)
+            c.setFont("DejaVuSans-Bold", 12)
             c.drawString(50, y_position, f"{idx}. Source: {source}")
             y_position -= 20
 
-            c.setFont("Helvetica", 11)
+            c.setFont("DejaVuSans", 11)
             for key, value in item.items():
                 if isinstance(value, (dict, list)):
                     value = json.dumps(value, ensure_ascii=False, indent=2)
@@ -62,6 +75,7 @@ def generate_pdf(request_id, response_param, command, indicator):
 
                 if y_position < 50:
                     c.showPage()
+                    c.setFont("DejaVuSans", 12)
                     y_position = 750
 
             y_position -= 10
