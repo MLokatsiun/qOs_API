@@ -3,7 +3,7 @@ import hashlib
 import secrets
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, TIMESTAMP
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID, ENUM
+from sqlalchemy.dialects.postgresql import UUID, ENUM, JSONB
 import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
@@ -43,5 +43,9 @@ class Request(Base):
     pdf_base64 = Column(String)
     status = Column(Enum(RequestStatus), nullable=False)
     created_at = Column(TIMESTAMP, default=datetime.utcnow, nullable=False)
-
+    indicator = Column(String, nullable=False)
+    request_param = Column(Text)
+    response_param = Column(JSONB)
+    command = Column(String, nullable=False)
+    batch_key = Column(String, nullable=True)
     user = relationship("User", back_populates="requests")

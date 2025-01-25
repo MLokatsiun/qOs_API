@@ -1,0 +1,28 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8003:8003"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - BROKER_URL=redis://172.27.224.253:6379/0  # Використовуємо IP WSL
+    depends_on:
+      - redis
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    environment:
+      - BROKER_URL=redis://172.27.224.253:6379/0  # Використовуємо IP WSL
+      - DATABASE_URL=${DATABASE_URL}
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
