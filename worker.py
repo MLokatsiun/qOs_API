@@ -47,7 +47,7 @@ def generate_pdf(request_id, response_param, command, indicator):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
 
-    c.setFont("DejaVuSans-Bold", 14)
+    c.setFont("DejaVuSans-Bold", 14)  
 
     y_position = 680
     c.setFont("DejaVuSans", 12)

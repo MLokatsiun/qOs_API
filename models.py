@@ -6,8 +6,6 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, ENUM, JSONB
 import uuid
 from datetime import datetime
-from enum import Enum as PyEnum
-
 from database import Base
 
 
@@ -49,3 +47,10 @@ class Request(Base):
     command = Column(String, nullable=False)
     batch_key = Column(String, nullable=True)
     user = relationship("User", back_populates="requests")
+
+
+class ClientCredentialsModel(Base):
+    __tablename__ = "client_credentials"
+    id = Column(Integer, primary_key=True, index=True)
+    client_name = Column(String, nullable=False)
+    client_password = Column(String, nullable=False)

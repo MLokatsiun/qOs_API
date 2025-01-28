@@ -3,7 +3,8 @@ import json
 from celery_config import celery_app
 from fastapi import FastAPI
 
-from database import SyncSessionLocal
+from database import SyncSessionLocal, get_db
+from init_data import create_client
 from routers.registration import router as registration_router
 from routers.requests_tg import router as tg_request_router
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,12 +25,20 @@ app.include_router(tg_request_router, prefix="/tg_request", tags=["TG Request"])
 
 consumer_started = False
 
+
+@app.on_event("startup")
+async def startup_event():
+    async for db in get_db():
+        await create_client(db)
+
 @app.on_event("startup")
 async def start_consumer_on_startup():
     global consumer_started
     if not consumer_started:
         asyncio.create_task(start_celery_consumer())
         consumer_started = True
+
+
 
 async def start_celery_consumer():
     """Функція для запуску Celery воркера лише один раз."""

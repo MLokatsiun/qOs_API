@@ -1,37 +1,36 @@
-from fastapi import FastAPI, HTTPException, Depends, APIRouter
+from fastapi import FastAPI, HTTPException, Depends, APIRouter, Header
+from passlib.context import CryptContext
 from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError
 from models import User
 from database import get_db, AsyncSession
 from schemas import UserCreateRequest
-
+from models import ClientCredentialsModel
 router = APIRouter()
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 @router.post("/users/")
-async def create_user(user_data: UserCreateRequest, db: AsyncSession = Depends(get_db)):
-    """
-    Створює нового користувача або повертає API-ключ, якщо користувач уже існує.
+async def create_user(
+    user_data: UserCreateRequest,
+    client_name: str = Header(...),
+    client_password: str = Header(...),
+    db: AsyncSession = Depends(get_db)
+):
+    credentials_query = select(ClientCredentialsModel).where(
+        ClientCredentialsModel.client_name == client_name
+    )
+    result = await db.execute(credentials_query)
+    credentials = result.scalars().first()
 
-    Параметри:
-    - **user_data** (UserCreateRequest): Об'єкт, що містить дані користувача, такі як номер телефону.
-    - **db** (AsyncSession): Сесія для взаємодії з базою даних.
+    if not credentials or not pwd_context.verify(client_password, credentials.client_password):
+        raise HTTPException(status_code=401, detail="Invalid client credentials")
 
-    Процес:
-    1. Перевіряє, чи є користувач із таким номером телефону в базі даних.
-    2. Якщо користувач існує, повертає його ID, номер телефону та API-ключ.
-    3. Якщо користувача немає, створює нового користувача, генерує API-ключ та додає його в базу даних.
-
-    Повертає:
-    - **id** (int): Ідентифікатор користувача в базі даних.
-    - **phone_number** (str): Номер телефону користувача.
-    - **api_key** (str): API-ключ користувача.
-    """
     phone_number = user_data.phone_number
-
     result = await db.execute(select(User).where(User.phone_number == phone_number))
     existing_user = result.scalars().first()
-    if existing_user:
 
+    if existing_user:
         return {
             "id": existing_user.id,
             "phone_number": existing_user.phone_number,
