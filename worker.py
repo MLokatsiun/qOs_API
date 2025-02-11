@@ -1,9 +1,13 @@
+import base64
+import os
+import tempfile
+
 from celery_config import celery_app
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from sqlalchemy.future import select
 
 from database import get_db, SyncSessionLocal
-from models import Request
+from models import Request, Shd_Request
 import uuid
 import requests
 import sqlite3
@@ -307,13 +311,13 @@ def is_valid_uuid(value):
 
 @celery_app.task
 def generate_sqlite_db_for_user(requests, user_chat_id, batch_key):
-    db_filename = f"{batch_key}_user_{user_chat_id}.db"
+    db_filename = f"{batch_key}user{user_chat_id}.db"
     conn = sqlite3.connect(db_filename)
     cursor = conn.cursor()
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS requests (
-        id TEXT PRIMARY KEY
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         request_id TEXT,
         response_param TEXT,
         status TEXT,
@@ -344,6 +348,217 @@ def generate_sqlite_db_for_user(requests, user_chat_id, batch_key):
         """, (request_id, response_param_json, request.status, request.command, indicator, request_param))
 
     conn.commit()
+    conn.close()
+
+    return db_filename
+
+
+SHODAN_RESPONSE_TOPIC = config("SHODAN_RESPONSE_TOPIC")
+
+def remove_null_bytes(data):
+    if isinstance(data, str):
+        return data.replace('\u0000', '')
+    if isinstance(data, list):
+        return [remove_null_bytes(item) for item in data]
+    if isinstance(data, dict):
+        return {key: remove_null_bytes(value) for key, value in data.items()}
+    return data
+
+
+@celery_app.task
+def generate_sqlite_db_for_user_shd(requests, user_chat_id, batch_key):
+    db_filename = f"{batch_key}user{user_chat_id}.db"
+    conn = sqlite3.connect(db_filename)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT,
+        response_param TEXT,
+        status TEXT,
+        command TEXT,
+        indicator TEXT,
+        request_param TEXT  
+    )
+    """)
+
+    for request in requests:
+        request_id = str(request.request_id)
+        indicator = str(request.indicator)
+
+        with SyncSessionLocal() as session:
+            result = session.execute(select(Shd_Request).where(Shd_Request.request_id == request_id))
+            request_record = result.scalars().first()
+
+            if request_record:
+                request_param = request_record.request_param
+            else:
+                request_param = None
+
+        response_param_json = json.dumps(request.response_param)
+
+        cursor.execute("""
+        INSERT OR REPLACE INTO requests (request_id, response_param, status, command, indicator, request_param)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """, (request_id, response_param_json, request.status, request.command, indicator, request_param))
+
+    conn.commit()
+    conn.close()
+
+    return db_filename
+
+
+@celery_app.task
+def consume_shodan_responses():
+    from database import SyncSessionLocal
+    consumer = Consumer({
+        'bootstrap.servers': KAFKA_BROKER,
+        'group.id': 'response-group',
+        'auto.offset.reset': 'earliest'
+    })
+
+    consumer.subscribe([SHODAN_RESPONSE_TOPIC])
+
+    batch_requests = {}
+
+    try:
+        while True:
+            msg = consumer.poll(5.0)
+
+            if msg is None:
+                continue
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    logger.warning(f"End of partition reached: {msg.error()}")
+                else:
+                    logger.error(f"Kafka error: {msg.error()}")
+                    raise KafkaException(msg.error())
+            else:
+                logger.info(f"Received raw message from Kafka: {msg.value()}")
+
+                try:
+                    message_data = json.loads(msg.value().decode('utf-8'))
+                    logger.info(f"Decoded Kafka message: {message_data}")
+
+                    request_id = message_data.get("request_id")
+                    response_param = message_data.get("response_param")
+                    command = message_data.get("command")
+                    indicator = message_data.get("indicator")
+
+                    logger.info(f"Extracted fields - request_id: {request_id}, response_param: {response_param}, "
+                                f"command: {command}, indicator: {indicator}")
+
+                    if not is_valid_uuid(request_id):
+                        logger.warning(f"Invalid UUID format for request_id: {request_id}. Ignoring the message.")
+                        continue
+
+                    if not request_id or not response_param or not command or not indicator:
+                        logger.warning(
+                            f"Invalid message format or missing required fields. Ignoring the message: {message_data}")
+                        continue
+
+                    try:
+                        chat_id = int(indicator)
+                    except ValueError:
+                        logger.warning(f"Invalid chat_id (indicator): {indicator}. Ignoring the message.")
+                        continue
+
+                    response_param = remove_null_bytes(response_param)
+
+                    with SyncSessionLocal() as session:
+                        result = session.execute(select(Shd_Request).where(Shd_Request.request_id == request_id))
+                        request_record = result.scalars().first()
+
+                        if not request_record:
+                            logger.warning(
+                                f"Request with id {request_id} not found in the database. Ignoring the message.")
+                            continue
+
+                        request_record.response_param = response_param
+                        request_record.status = "completed"
+                        session.commit()
+                        logger.info(
+                            f"Request {request_id} updated in the database: response_param set and status changed to 'COMPLETE'")
+
+                        if request_record.batch_key:
+                            logger.info(f"Request {request_id} has batch_key, processing as part of a batch.")
+
+                            if request_record.batch_key not in batch_requests:
+                                batch_requests[request_record.batch_key] = {}
+
+                            if chat_id not in batch_requests[request_record.batch_key]:
+                                batch_requests[request_record.batch_key][chat_id] = []
+
+                            batch_requests[request_record.batch_key][chat_id].append(request_record)
+
+                            result = session.execute(
+                                select(Shd_Request).where(Shd_Request.batch_key == request_record.batch_key))
+                            all_requests = result.scalars().all()
+                            completed_requests = [r for r in all_requests if r.status == 'completed']
+
+                            if len(all_requests) == len(completed_requests):
+                                for user_chat_id, user_requests in batch_requests[request_record.batch_key].items():
+                                    db_filename = generate_sqlite_db_for_user_shd(user_requests, user_chat_id,
+                                                                              request_record.batch_key)
+                                    send_db_to_user(user_chat_id, db_filename)
+                                    logger.info(
+                                        f"Batch {request_record.batch_key} processed and sent to user {user_chat_id}")
+                                batch_requests.pop(request_record.batch_key)
+
+                        else:
+                            if isinstance(response_param, list) and len(response_param) == 1 and "message" in \
+                                    response_param[0]:
+                                send_message_to_user(chat_id, response_param[0]["message"])
+                                logger.info(
+                                    f"Message sent to user {chat_id} for request_id: {request_id}. No PDF generated.")
+                                continue
+
+                            if not response_param or (isinstance(response_param, list) and len(response_param) == 0):
+                                send_message_to_user(chat_id,
+                                                     f"Не знайдено даних за вашим запитом (request_id: {request_id}).")
+                                logger.info(
+                                    f"No data found for request_id: {request_id}. Sent message to user {chat_id}.")
+                                continue
+
+                            db_filename = generate_sqlite_db_for_user_single(request_id, response_param, command, indicator)
+                            send_db_to_user(chat_id, db_filename)
+                            logger.info(f"PDF generated and sent to user {chat_id} for request_id: {request_id}")
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to decode Kafka message: {msg.value()} - Error: {e}")
+                except Exception as e:
+                    logger.error(f"Unexpected error while processing message: {msg.value()} - Error: {e}")
+
+    finally:
+        consumer.close()
+
+@celery_app.task
+def generate_sqlite_db_for_user_single(request_id, response_param, command, indicator):
+    db_filename = f"user_{request_id}.db"
+
+    conn = sqlite3.connect(db_filename)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT NOT NULL,
+        response_param TEXT NOT NULL,
+        command TEXT NOT NULL,
+        indicator TEXT NOT NULL
+    )
+    """)
+
+    response_param_json = json.dumps(response_param, ensure_ascii=False)
+
+    cursor.execute("""
+    INSERT INTO requests (request_id, response_param, command, indicator)
+    VALUES (?, ?, ?, ?)
+    """, (request_id, response_param_json, command, indicator))
+
+    conn.commit()
+
     conn.close()
 
     return db_filename

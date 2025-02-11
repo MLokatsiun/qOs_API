@@ -18,6 +18,7 @@ class User(Base):
     created_at = Column(TIMESTAMP, default=datetime.utcnow, nullable=False)
 
     requests = relationship("Request", back_populates="user")
+    shd_requests = relationship("Shd_Request", back_populates="user")
 
     def generate_api_key(self):
         unique_string = self.phone_number + secrets.token_hex(16)
@@ -47,6 +48,21 @@ class Request(Base):
     command = Column(String, nullable=False)
     batch_key = Column(String, nullable=True)
     user = relationship("User", back_populates="requests")
+
+class Shd_Request(Base):
+    __tablename__ = 'shd_requests'
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    request_id = Column(UUID, default=uuid.uuid4, unique=True, nullable=False)
+    indicator = Column(String, nullable=False)
+    status = Column(Enum(RequestStatus), nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow, nullable=False)
+    request_param = Column(Text)
+    response_param = Column(JSONB)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    command = Column(String, nullable=False)
+    batch_key = Column(String, nullable=True)
+    user = relationship("User", back_populates="shd_requests")
 
 
 class ClientCredentialsModel(Base):
