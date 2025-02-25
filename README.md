@@ -14,7 +14,7 @@ This project is a Telegram bot that uses FastAPI and Celery for user registratio
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/MLokatsiun/qOs_API.git
-cd your-repo
+cd qOs_API
 ```
 
 ### 2. Create a Virtual Environment and Install Dependencies
